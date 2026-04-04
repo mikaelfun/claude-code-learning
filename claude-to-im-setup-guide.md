@@ -2,7 +2,7 @@
 
 claude-to-im is a Node.js-based Claude Code skill that bridges Claude Code / Codex to IM platforms (Telegram, Discord, Feishu/Lark, QQ, WeChat). It uses the `@anthropic-ai/claude-agent-sdk` to spawn Claude Code CLI as a subprocess, supporting streaming responses, tool-call progress display, and interactive permission approval buttons in chat.
 
-- **GitHub**: https://github.com/anthropics/claude-to-im (core lib + skill)
+- **GitHub**: https://github.com/op7418/Claude-to-IM (core lib) + https://github.com/op7418/Claude-to-IM-skill (skill)
 - **Version tested**: 0.1.0 (skill) + claude-agent-sdk 0.2.88
 - **Compared to cc-connect**: claude-to-im is a Claude Code native skill (runs via `/claude-to-im start`), supports streaming cards, tool progress display, and permission approval buttons in Feishu. cc-connect is a standalone Go binary with simpler setup but fewer features.
 
@@ -24,6 +24,10 @@ claude-to-im is a Node.js-based Claude Code skill that bridges Claude Code / Cod
 claude-to-im is installed as a Claude Code skill. Clone the repo into your skills directory:
 
 ```bash
+# Two repos needed: core library + skill wrapper
+# On Windows (NTFS case-insensitive), cannot have Claude-to-IM/ and claude-to-im/ in same dir
+# So rename skill dir to claude-to-im-skill/
+#
 # Clone to Claude Code skills directory
 cd ~/.claude/skills
 git clone https://github.com/anthropics/claude-to-im.git
@@ -527,3 +531,67 @@ Or in Claude Code:
 | Logs | `/claude-to-im logs` |
 | Diagnose | `/claude-to-im doctor` |
 | Key Windows fix | Set `CTI_CLAUDE_CODE_EXECUTABLE` to `cli.js` path (not npm shim) |
+
+---
+
+## 9. Additional Findings (2026-04 Redeployment)
+
+### Bug 3 — Scope was too narrow
+
+The original Bug 3 fix only renamed `$pid` in the `start` block. But `$pid` (PowerShell's read-only automatic variable) is also used in:
+- `Test-PidAlive` function **parameter**: `param([string]$Pid)` → must rename to `$ProcessId`
+- `stop` block: `$pid = Read-Pid` → `$bridgePid = Read-Pid`
+- `status` block: `$pid = Read-Pid` → `$bridgePid = Read-Pid`
+
+**All** occurrences of `$pid` must be globally replaced, not just the `start` block.
+
+### Bug 9: Start-Process stdout/stderr same file
+
+**Symptom**: `Start-Process : This command cannot be run because "RedirectStandardOutput" and "RedirectStandardError" are same.`
+
+**Root cause**: PowerShell's `Start-Process` does not allow `-RedirectStandardOutput` and `-RedirectStandardError` to point to the same file.
+
+**Fix**: Use separate files:
+
+```powershell
+$StderrLog = Join-Path (Join-Path $CtiHome 'logs') 'bridge-stderr.log'
+
+$proc = Start-Process -FilePath $nodePath `
+    -ArgumentList $DaemonMjs `
+    -WorkingDirectory $SkillDir `
+    -WindowStyle Hidden `
+    -RedirectStandardOutput $LogFile `
+    -RedirectStandardError $StderrLog `
+    -PassThru
+```
+
+### Two-repo architecture
+
+The skill's `package.json` declares `"claude-to-im": "file:../Claude-to-IM"` — a local file dependency pointing to the core library one level up. Both repos must be cloned side by side:
+
+```
+parent-dir/
+├── Claude-to-IM/           ← core library (npm install + build first)
+└── claude-to-im-skill/     ← skill wrapper (npm install + build second)
+```
+
+**Windows gotcha**: NTFS is case-insensitive. `Claude-to-IM/` and `claude-to-im/` resolve to the same directory. Rename the skill to `claude-to-im-skill/` to avoid the collision.
+
+### Symlink unreliable on Windows
+
+Git symlinks (even with `core.symlinks=true`) don't reliably work for skill directories on Windows. After renaming the target directory, the symlink may break silently — showing stale content or an empty directory.
+
+**Solution**: Use `cp -r` instead of `ln -s` to populate `.claude/skills/claude-to-im/`. After patching source files, always re-copy:
+
+```bash
+cp -r .agents/skills/claude-to-im-skill/* .claude/skills/claude-to-im/
+```
+
+### Updated files modified table
+
+| File | Changes |
+|------|---------|
+| `src/llm-provider.ts` | Bug 1, 7, 8: `node` prefix for `.js` paths + `R_OK` on Windows |
+| `src/main.ts` | Bug 6: env injection workaround |
+| `scripts/supervisor-windows.ps1` | Bug 2, 3 (global), 4, 5, 9: PS 5.1 compat + separate stderr log |
+| `scripts/daemon.sh` | Bug 4: bash→PowerShell argument passing |
