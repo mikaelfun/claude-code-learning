@@ -182,6 +182,10 @@ CTI_CLAUDE_CODE_EXECUTABLE=C:\Users\YourName\AppData\Roaming\npm\node_modules\@a
 CTI_FEISHU_APP_ID=cli_xxxxxxxxxx
 CTI_FEISHU_APP_SECRET=your_app_secret_here
 CTI_FEISHU_DOMAIN=https://open.feishu.cn
+
+# Auto-approve all tool permissions (no approval buttons needed)
+# Recommended for personal use — skips permission popups in Feishu
+CTI_AUTO_APPROVE=true
 ```
 
 ### Windows: Finding the correct CLI path
