@@ -643,3 +643,12 @@ Requires bridge restart after change.
 ### SDK v2 status (as of 2026-04)
 
 `@larksuiteoapi/node-sdk` npm latest is **1.60.0**. `cardkit.v2` (streaming cards) is NOT included. No timeline from Feishu SDK team. The core library was likely developed against an internal/beta SDK version.
+
+### Note: Feishu rich text rendering vs cardkit cards
+
+After setting `CTI_FEISHU_CARD_MODE=text`, you may still see card-like formatting in Feishu. This is **not** our cardkit card — it's Feishu's native rendering of `msg_type: 'post'` (rich text) messages. Long messages or messages with markdown formatting are automatically displayed by the Feishu client in a card-like container. This is client-side behavior and cannot be changed from the bot side.
+
+| What you see | Source | Controllable? |
+|---|---|---|
+| Card with "Thinking..." → streaming updates → final content | Our cardkit card (v1/v2) | ✅ Yes — `CTI_FEISHU_CARD_MODE` |
+| Card-like container with formatted text (long message) | Feishu client rich text rendering | ❌ No — Feishu native behavior |
