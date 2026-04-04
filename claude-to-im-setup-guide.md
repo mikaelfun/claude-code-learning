@@ -599,3 +599,47 @@ cp -r .agents/skills/claude-to-im-skill/* .claude/skills/claude-to-im/
 | `src/main.ts` | Bug 6: env injection workaround |
 | `scripts/supervisor-windows.ps1` | Bug 2, 3 (global), 4, 5, 9: PS 5.1 compat + separate stderr log |
 | `scripts/daemon.sh` | Bug 4: bash→PowerShell argument passing |
+
+### Bug 10: cardkit.v2 not available — fallback to v1 static cards
+
+**Symptom**: `Failed to create streaming card: Cannot read properties of undefined (reading 'card')` — repeated hundreds of times, messages stuck.
+
+**Root cause**: The feishu adapter calls `this.restClient.cardkit.v2.card.create()`, but `@larksuiteoapi/node-sdk` v1.59–1.60 only ships `cardkit.v1`. `cardkit.v2` is `undefined`. This is **upstream Issue #15**.
+
+**Fix**: Modify `feishu-adapter.ts` to auto-detect SDK version and fallback:
+
+```typescript
+// In _doCreateStreamingCard():
+const hasV2 = !!this.restClient.cardkit?.v2?.card;
+const hasV1 = !!this.restClient.cardkit?.v1?.card;
+if (!hasV2 && !hasV1) return false;
+
+// Use whichever is available:
+const cardApi = hasV2 ? this.restClient.cardkit.v2.card : this.restClient.cardkit.v1.card;
+```
+
+v1 cards support `create` and `update` but NOT `streamContent` or `streamingMode`. Result: cards work but without real-time streaming — content updates once at completion.
+
+**Also patched**: `flushCardUpdate()` (skip if no `streamContent`) and `finalizeCard()` (use v1 `card.update`, skip `streamingMode.set`).
+
+### CTI_FEISHU_CARD_MODE — card/text mode switch
+
+Added `CTI_FEISHU_CARD_MODE` env var to `config.env` for switching between card and plain text output:
+
+| Value | Behavior |
+|-------|----------|
+| `text` | Plain text messages only (most reliable) |
+| `v1` | Static cards via cardkit v1 (Thinking → final update) |
+| _(unset)_ | Auto-detect (v2 > v1 > text) |
+
+```bash
+# In ~/.claude-to-im/config.env:
+CTI_FEISHU_CARD_MODE=text    # plain text
+# CTI_FEISHU_CARD_MODE=v1   # static cards
+```
+
+Requires bridge restart after change.
+
+### SDK v2 status (as of 2026-04)
+
+`@larksuiteoapi/node-sdk` npm latest is **1.60.0**. `cardkit.v2` (streaming cards) is NOT included. No timeline from Feishu SDK team. The core library was likely developed against an internal/beta SDK version.
